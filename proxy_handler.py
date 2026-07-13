@@ -296,11 +296,11 @@ def main():
             sys.exit(1)
 
     config = {
-        "log": {"level": "debug", "timestamp": True},
+        "log": {"level": "info", "timestamp": True},
         "dns": {
             "servers": [
-                {"address": "8.8.8.8", "address_resolver": "local"},
-                {"address": "1.1.1.1", "address_resolver": "local"}
+                {"address": "8.8.8.8"},
+                {"address": "1.1.1.1"}
             ]
         },
         "inbounds": [
@@ -313,13 +313,9 @@ def main():
         ],
         "outbounds": [
             outbound,
-            {"type": "direct", "tag": "direct"},
-            {"type": "dns", "tag": "dns-out"}
+            {"type": "direct", "tag": "direct"}
         ],
         "route": {
-            "rules": [
-                {"protocol": "dns", "outbound": "dns-out"}
-            ],
             "auto_detect_interface": True
         }
     }
