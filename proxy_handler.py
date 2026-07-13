@@ -299,9 +299,12 @@ def main():
         "log": {"level": "info", "timestamp": True},
         "dns": {
             "servers": [
-                {"address": "8.8.8.8"},
-                {"address": "1.1.1.1"}
-            ]
+                # 增加 "detour": "direct"，强制 DNS 请求绕过代理直连，打破死循环
+                {"address": "8.8.8.8", "detour": "direct"},
+                {"address": "1.1.1.1", "detour": "direct"}
+            ],
+            # 强制仅使用 IPv4，防止 GitHub Actions 环境下的 IPv6 路由黑洞
+            "strategy": "ipv4_only"
         },
         "inbounds": [
             {
