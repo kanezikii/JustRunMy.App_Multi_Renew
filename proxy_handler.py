@@ -296,7 +296,13 @@ def main():
             sys.exit(1)
 
     config = {
-        "log": {"level": "info", "timestamp": True},
+        "log": {"level": "debug", "timestamp": True},
+        "dns": {
+            "servers": [
+                {"address": "8.8.8.8", "address_resolver": "local"},
+                {"address": "1.1.1.1", "address_resolver": "local"}
+            ]
+        },
         "inbounds": [
             {
                 "type": "http",
@@ -308,7 +314,14 @@ def main():
         "outbounds": [
             outbound,
             {"type": "direct", "tag": "direct"},
+            {"type": "dns", "tag": "dns-out"}
         ],
+        "route": {
+            "rules": [
+                {"protocol": "dns", "outbound": "dns-out"}
+            ],
+            "auto_detect_interface": True
+        }
     }
 
     with open("config.json", "w") as f:
