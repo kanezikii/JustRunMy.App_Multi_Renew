@@ -97,7 +97,15 @@ jobs:
         echo "🔍 验证代理出口..."
         export http_proxy=http://127.0.0.1:8080
         export https_proxy=http://127.0.0.1:8080
-        curl -s --connect-timeout 10 https://api.ipify.org || echo "无法获取出口 IP"
+        
+        if ! curl -s --connect-timeout 10 https://api.ipify.org; then
+          echo "❌ 无法获取出口 IP，代理连接失败！"
+          echo "================ singbox.log ================"
+          cat singbox.log
+          echo "============================================="
+          exit 1
+        fi
+        echo " - ✅ 代理出口验证成功！"
 
     - name: 🛠️ 安装自动化依赖
       run: |
