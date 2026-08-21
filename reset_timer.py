@@ -386,8 +386,78 @@ def form_login(sb) -> bool:
     return True
 
 # ============================================================
-#  续期操作模块
+#  续期操作模块 (多策略容错定位)
 # ============================================================
+def find_and_click_reset_entry(sb) -> bool:
+    """多策略智能定位并点击主界面的 Reset timer 按钮"""
+    print("正在定位并打开续期弹窗...")
+    start_time = time.time()
+    max_wait = 25
+
+    js_find_and_click = """
+    (function() {
+        var buttons = Array.from(document.querySelectorAll('button, a'));
+        // 1. 文本/属性完全匹配
+        for (var btn of buttons) {
+            var text = (btn.innerText || btn.textContent || "").toLowerCase().trim();
+            var aria = (btn.getAttribute('aria-label') || "").toLowerCase().trim();
+            var title = (btn.getAttribute('title') || "").toLowerCase().trim();
+            var cls = (btn.className || "").toLowerCase();
+            
+            if (text.includes("reset timer") || aria.includes("reset timer") || title.includes("reset timer")) {
+                btn.click();
+                return "text_or_aria_match";
+            }
+            if (btn.querySelector('.bi-arrow-clockwise') && (cls.includes('amber') || cls.includes('orange') || text.includes('reset'))) {
+                btn.click();
+                return "icon_match";
+            }
+        }
+        // 2. 备用：包含 Reset 且带有橙黄色高亮
+        for (var btn of buttons) {
+            var text = (btn.innerText || btn.textContent || "").toLowerCase().trim();
+            var cls = (btn.className || "").toLowerCase();
+            if (text.includes("reset") && !text.includes("just reset") && (cls.includes('amber') || cls.includes('orange') || cls.includes('yellow'))) {
+                btn.click();
+                return "color_reset_match";
+            }
+        }
+        return null;
+    })()
+    """
+
+    while time.time() - start_time < max_wait:
+        try:
+            res = sb.execute_script(js_find_and_click)
+            if res:
+                print(f"✅ 成功触发 Reset timer 按钮 (方式: {res})")
+                return True
+        except Exception:
+            pass
+
+        selectors = [
+            'button[aria-label*="Reset timer" i]',
+            'button[title*="Reset timer" i]',
+            'button:contains("Reset timer")',
+            'button.bg-amber-500',
+            'button.bg-amber-600',
+            'button.bg-orange-500',
+            '//button[contains(., "Reset timer")]',
+            '//button[.//i[contains(@class, "bi-arrow-clockwise")]]'
+        ]
+        for sel in selectors:
+            try:
+                if sb.is_element_visible(sel):
+                    sb.click(sel)
+                    print(f"✅ 成功点击 Reset timer 按钮 (选择器: {sel})")
+                    return True
+            except Exception:
+                continue
+
+        time.sleep(1)
+
+    return False
+
 def click_just_reset_button(sb) -> bool:
     print("正在定位并点击 Just Reset 确认按钮...")
     selectors = [
@@ -430,43 +500,20 @@ def renew(sb) -> bool:
     print("   开始自动续期流程")
     print("=" * 50)
     
-    if "panel/application/56317" not in sb.get_current_url().lower():
+    # 避免重复刷新当前页面
+    if "56317" not in sb.get_current_url().lower():
         print(f"进入应用详情页: {APP_URL}")
         sb.open(APP_URL)
         time.sleep(6)
 
-    btn_selectors = [
-        'button[aria-label="Reset timer"]',
-        'button[title="Reset timer"]',
-        'button:contains("Reset timer")',
-        'section button'
-    ]
-    
-    btn_found = False
-    print("定位并打开续期弹窗...")
-    for sel in btn_selectors:
-        try:
-            if sb.is_element_visible(sel):
-                sb.click(sel)
-                btn_found = True
-                print(f"成功点击主界面 Reset timer 按钮 (选择器: {sel})")
-                time.sleep(3)
-                break
-        except Exception:
-            continue
+    # 1. 查找并点击 Reset timer 按钮
+    if not find_and_click_reset_entry(sb):
+        print("无法定位到 Reset timer 按钮")
+        sb.save_screenshot("renew_reset_btn_not_found.png")
+        send_tg_message("❌", "续期失败(找不到入口按钮)", "未知")
+        return False
 
-    if not btn_found:
-        try:
-            sb.wait_for_element('button[aria-label="Reset timer"]', timeout=10)
-            sb.click('button[aria-label="Reset timer"]')
-            btn_found = True
-            time.sleep(3)
-        except Exception as e:
-            print(f"无法定位到 Reset timer 按钮: {e}")
-            sb.save_screenshot("renew_reset_btn_not_found.png")
-            send_tg_message("❌", "续期失败(找不到入口按钮)", "未知")
-            return False
-
+    # 2. 等待弹窗与 Turnstile 验证
     print("检查续期弹窗...")
     time.sleep(2)
     if sb.execute_script(_EXISTS_JS):
@@ -480,6 +527,7 @@ def renew(sb) -> bool:
     else:
         print("弹窗内未检测到 Turnstile 验证，直接继续...")
 
+    # 3. 点击 Just Reset 确认按钮
     time.sleep(1)
     if not click_just_reset_button(sb):
         print("无法点击 Just Reset 确认按钮")
@@ -490,20 +538,20 @@ def renew(sb) -> bool:
     print("提交续期请求，等待服务器处理...")
     time.sleep(6)
 
+    # 4. 读取剩余时间并回写 Cookie
     print("验证续期结果与剩余时间...")
     try:
         sb.refresh()
         time.sleep(5)
         
-        # 1. 优先提取最新有效 Cookie 并同步覆盖 GitHub Secret
+        # 提取最新有效 Cookie 并同步覆盖 GitHub Secret
         dump_and_sync_cookies(sb)
 
-        # 2. 读取倒计时文本
         timer_text = "已提交重置"
         for sel in ['span.font-mono', 'section div']:
             if sb.is_element_visible(sel):
                 txt = sb.get_text(sel)
-                if "day" in txt or "hour" in txt or ":" in txt:
+                if "day" in txt or "hour" in txt or ":" in txt or "until" in txt:
                     timer_text = txt
                     break
 
